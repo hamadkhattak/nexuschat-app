@@ -53,7 +53,7 @@ Open http://localhost:3000
 | Variable       | Default                              | Description               |
 |----------------|--------------------------------------|---------------------------|
 | PORT           | 3000                                 | Server port               |
-| MONGODB_URI    | mongodb://localhost:27017/chat-saas  | MongoDB connection string |
+| MONGODB_URI    |                                      | MongoDB connection string |
 | JWT_SECRET     | (required)                           | Secret for signing JWTs   |
 | JWT_EXPIRES_IN | 7d                                   | Token expiry              |
 
