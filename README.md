@@ -1,4 +1,4 @@
-# NexusChat — SaaS Real-Time Chat System
+# NexusChat — SaaS Real-Time Chat 
 
 A  real-time chat platform built with Node.js, Socket.IO, and MongoDB.
 
