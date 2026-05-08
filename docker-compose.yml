@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: nexuschat-app
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGODB_URI=mongodb+srv://bookstoreadmin:secretpwd@cluster0.l8rlybk.mongodb.net/chat-saas?retryWrites=true&w=majority
+      - PORT=3000
+    restart: unless-stopped
