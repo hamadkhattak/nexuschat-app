@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NexusChat — Business Messaging</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet" />
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0b;
+      --surface: #111114;
+      --surface2: #18181d;
+      --border: #2a2a32;
+      --border-bright: #3d3d4d;
+      --accent: #00e5a0;
+      --accent-dim: rgba(0,229,160,0.12);
+      --accent-glow: rgba(0,229,160,0.35);
+      --red: #ff4b6e;
+      --yellow: #f5c518;
+      --text: #e8e8f0;
+      --text-muted: #666678;
+      --text-dim: #3a3a48;
+      --mono: 'JetBrains Mono', monospace;
+      --display: 'Syne', sans-serif;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.5;
+      overflow: hidden;
+    }
+
+    /* ── SCANLINE OVERLAY ── */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 9999;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.04) 2px,
+        rgba(0,0,0,0.04) 4px
+      );
+      pointer-events: none;
+    }
+
+    /* ── LAYOUT ── */
+    .app {
+      display: grid;
+      grid-template-rows: 56px 1fr;
+      height: 100vh;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      position: relative;
+    }
+    .topbar::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      opacity: 0.4;
+    }
+
+    .logo {
+      font-family: var(--display);
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: var(--text);
+    }
+    .logo span { color: var(--accent); }
+
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 20px;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .status-dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--text-dim);
+      display: inline-block;
+      margin-right: 6px;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .status-dot.connected {
+      background: var(--accent);
+      box-shadow: 0 0 8px var(--accent-glow);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+
+    #business-label {
+      font-family: var(--display);
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--accent);
+      display: none;
+    }
+
+    /* ── MAIN PANELS ── */
+    .main {
+      display: grid;
+      grid-template-columns: 340px 1fr;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ── AUTH PANEL ── */
+    .auth-panel {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .panel-header {
+      padding: 20px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      font-family: var(--display);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .section {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-title {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+      margin-top: 12px;
+    }
+    label:first-of-type { margin-top: 0; }
+
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 8px 10px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    input:focus, textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-dim);
+    }
+    textarea { resize: none; height: 70px; font-size: 11px; line-height: 1.5; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 9px 16px;
+      margin-top: 12px;
+      background: transparent;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, box-shadow 0.2s, transform 0.1s;
+    }
+    .btn:hover {
+      background: var(--accent-dim);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn.primary {
+      background: var(--accent);
+      color: #0a0a0b;
+    }
+    .btn.primary:hover {
+      box-shadow: 0 0 20px var(--accent-glow);
+    }
+    .btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .feedback {
+      margin-top: 10px;
+      font-size: 11px;
+      padding: 7px 10px;
+      border-radius: 4px;
+      display: none;
+      line-height: 1.4;
+    }
+    .feedback.error { background: rgba(255,75,110,0.1); color: var(--red); border: 1px solid rgba(255,75,110,0.3); }
+    .feedback.success { background: var(--accent-dim); color: var(--accent); border: 1px solid rgba(0,229,160,0.3); }
+    .feedback.show { display: block; }
+
+    .token-display {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 10px;
+      color: var(--accent);
+      word-break: break-all;
+      line-height: 1.6;
+      display: none;
+      margin-top: 10px;
+    }
+    .token-display.show { display: block; }
+
+    .divider {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 2px;
+      padding: 12px 0 0;
+    }
+
+    /* ── CHAT PANEL ── */
+    .chat-panel {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+      overflow: hidden;
+    }
+
+    .chat-header {
+      padding: 14px 24px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .room-name {
+      font-family: var(--display);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .room-name span { color: var(--accent); font-style: normal; }
+
+    .online-count {
+      font-size: 10px;
+      color: var(--text-muted);
+      letter-spacing: 0.5px;
+    }
+
+    /* ── MESSAGES ── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      scrollbar-width: thin;
+      scrollbar-color: var(--border) transparent;
+    }
+    .messages::-webkit-scrollbar { width: 4px; }
+    .messages::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 12px;
+      color: var(--text-dim);
+    }
+    .empty-state .big { font-size: 36px; opacity: 0.3; }
+    .empty-state p { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+
+    .msg {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 10px;
+      padding: 6px 8px;
+      border-radius: 4px;
+      animation: fadeIn 0.2s ease;
+      transition: background 0.15s;
+    }
+    .msg:hover { background: var(--surface2); }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .msg-time {
+      font-size: 10px;
+      color: var(--text-dim);
+      padding-top: 2px;
+      min-width: 54px;
+      text-align: right;
+    }
+
+    .msg-body { display: flex; flex-direction: column; gap: 2px; }
+    .msg-sender {
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--accent);
+      letter-spacing: 0.3px;
+    }
+    .msg-sender.self { color: var(--yellow); }
+
+    .msg-text {
+      font-size: 13px;
+      color: var(--text);
+      line-height: 1.55;
+      word-break: break-word;
+    }
+
+    .sys-msg {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-dim);
+      letter-spacing: 0.5px;
+      padding: 6px 0;
+      text-transform: uppercase;
+    }
+    .sys-msg::before, .sys-msg::after {
+      content: ' ─── ';
+      opacity: 0.4;
+    }
+
+    /* ── INPUT AREA ── */
+    .input-area {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: none;
+    }
+    .input-area.visible { display: block; }
+
+    .input-row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .sender-wrap { min-width: 120px; }
+    .sender-input {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--accent);
+      font-family: var(--mono);
+      font-size: 12px;
+      padding: 9px 10px;
+      width: 100%;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .sender-input:focus { border-color: var(--yellow); }
+
+    .msg-input-wrap { flex: 1; position: relative; }
+    .msg-input {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      padding: 9px 44px 9px 12px;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .msg-input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px var(--accent-dim);
+    }
+
+    .send-btn {
+      position: absolute;
+      right: 8px; top: 50%;
+      transform: translateY(-50%);
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: var(--accent);
+      padding: 4px;
+      display: flex;
+      align-items: center;
+      opacity: 0.7;
+      transition: opacity 0.2s;
+    }
+    .send-btn:hover { opacity: 1; }
+
+    .connect-hint {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-dim);
+      font-size: 11px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      padding: 20px 0 0;
+    }
+
+    /* ── LOADING ── */
+    .loading {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      animation: blink 1s step-start infinite;
+      margin-left: 8px;
+      vertical-align: middle;
+    }
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="logo">Nexus<span>Chat</span></div>
+    <div class="status-bar">
+      <span id="business-label"></span>
+      <span>
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">DISCONNECTED</span>
+      </span>
+    </div>
+  </header>
+
+  <div class="main">
+    <!-- Auth Panel -->
+    <aside class="auth-panel">
+      <div class="panel-header">Access Control</div>
+
+      <!-- Register -->
+      <div class="section">
+        <div class="section-title">Register Business</div>
+        <label>Business Name</label>
+        <input type="text" id="reg-name" placeholder="Acme Corp" />
+        <label>Email</label>
+        <input type="email" id="reg-email" placeholder="admin@acme.com" />
+        <label>Password</label>
+        <input type="password" id="reg-password" placeholder="••••••••" />
+        <button class="btn primary" onclick="register()">Register &amp; Get Token</button>
+        <div class="feedback" id="reg-feedback"></div>
+        <div class="token-display" id="reg-token"></div>
+      </div>
+
+      <div class="divider">OR</div>
+
+      <!-- Login -->
+      <div class="section">
+        <div class="section-title">Login</div>
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="admin@acme.com" />
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" />
+        <button class="btn" onclick="loginBusiness()">Login</button>
+        <div class="feedback" id="login-feedback"></div>
+      </div>
+
+      <!-- Connect -->
+      <div class="section">
+        <div class="section-title">Connect to Room</div>
+        <label>JWT Token</label>
+        <textarea id="jwt-input" placeholder="Paste your JWT token here…"></textarea>
+        <button class="btn primary" id="connect-btn" onclick="connectSocket()">
+          Join Chat Room
+        </button>
+        <button class="btn" id="disconnect-btn" onclick="disconnectSocket()" style="display:none; border-color:var(--red); color:var(--red);">
+          Disconnect
+        </button>
+        <div class="feedback" id="connect-feedback"></div>
+      </div>
+    </aside>
+
+    <!-- Chat Panel -->
+    <section class="chat-panel">
+      <div class="chat-header">
+        <div class="room-name" id="room-name">
+          <span>#</span> global
+        </div>
+        <div class="online-count" id="online-info">Connect to join</div>
+      </div>
+
+      <div class="messages" id="messages">
+        <div class="empty-state" id="empty-state">
+          <div class="big">⬡</div>
+          <p>No messages yet</p>
+        </div>
+      </div>
+
+      <div class="input-area" id="input-area">
+        <div class="input-row">
+          <div class="sender-wrap">
+            <input class="sender-input" type="text" id="sender-name" placeholder="Your name" maxlength="30" />
+          </div>
+          <div class="msg-input-wrap">
+            <input class="msg-input" type="text" id="message-input" placeholder="Type a message…" maxlength="2000" />
+            <button class="send-btn" onclick="sendMessage()" title="Send (Enter)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="22" y1="2" x2="11" y2="13"></line>
+                <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="connect-hint" id="connect-hint">
+        ← Register or login, then paste your token to connect
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+  const API = '';
+  let socket = null;
+  let myToken = null;
+  let myBusinessName = null;
+
+  // ── HELPERS ──
+  function showFeedback(id, msg, type) {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `feedback ${type} show`;
+    setTimeout(() => el.classList.remove('show'), 6000);
+  }
+
+  function setToken(token) {
+    myToken = token;
+    document.getElementById('jwt-input').value = token;
+  }
+
+  function setConnected(businessName) {
+    myBusinessName = businessName;
+    document.getElementById('status-dot').classList.add('connected');
+    document.getElementById('status-text').textContent = 'CONNECTED';
+    const label = document.getElementById('business-label');
+    label.textContent = businessName;
+    label.style.display = 'block';
+    document.getElementById('room-name').innerHTML = `<span>#</span> ${businessName.toLowerCase().replace(/\s+/g,'-')}`;
+    document.getElementById('online-info').textContent = 'Live';
+    document.getElementById('connect-btn').style.display = 'none';
+    document.getElementById('disconnect-btn').style.display = 'block';
+    document.getElementById('input-area').classList.add('visible');
+    document.getElementById('connect-hint').style.display = 'none';
+  }
+
+  function setDisconnected() {
+    document.getElementById('status-dot').classList.remove('connected');
+    document.getElementById('status-text').textContent = 'DISCONNECTED';
+    document.getElementById('business-label').style.display = 'none';
+    document.getElementById('room-name').innerHTML = '<span>#</span> global';
+    document.getElementById('online-info').textContent = 'Connect to join';
+    document.getElementById('connect-btn').style.display = 'block';
+    document.getElementById('disconnect-btn').style.display = 'none';
+    document.getElementById('input-area').classList.remove('visible');
+    document.getElementById('connect-hint').style.display = 'flex';
+    myBusinessName = null;
+  }
+
+  function fmtTime(date) {
+    const d = new Date(date);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function clearMessages() {
+    const container = document.getElementById('messages');
+    container.innerHTML = '<div class="empty-state" id="empty-state"><div class="big">⬡</div><p>No messages yet</p></div>';
+  }
+
+  function appendMessage(data, isHistory) {
+    const container = document.getElementById('messages');
+    const empty = document.getElementById('empty-state');
+    if (empty) empty.remove();
+
+    const isSelf = data.sender === document.getElementById('sender-name').value.trim();
+
+    const div = document.createElement('div');
+    div.className = 'msg';
+    div.innerHTML = `
+      <div class="msg-time">${fmtTime(data.createdAt || new Date())}</div>
+      <div class="msg-body">
+        <div class="msg-sender ${isSelf ? 'self' : ''}">${escapeHtml(data.sender)}</div>
+        <div class="msg-text">${escapeHtml(data.text)}</div>
+      </div>
+    `;
+    container.appendChild(div);
+    if (!isHistory) container.scrollTop = container.scrollHeight;
+  }
+
+  function appendSysMsg(text) {
+    const container = document.getElementById('messages');
+    const empty = document.getElementById('empty-state');
+    if (empty) empty.remove();
+    const div = document.createElement('div');
+    div.className = 'sys-msg';
+    div.textContent = text;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── AUTH ──
+  async function register() {
+    const name = document.getElementById('reg-name').value.trim();
+    const email = document.getElementById('reg-email').value.trim();
+    const password = document.getElementById('reg-password').value;
+    if (!name || !email || !password) return showFeedback('reg-feedback','All fields required','error');
+
+    try {
+      const res = await fetch(`${API}/api/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      showFeedback('reg-feedback', '✓ Registered! Token copied to connect field.', 'success');
+      const tokenEl = document.getElementById('reg-token');
+      tokenEl.textContent = data.token;
+      tokenEl.classList.add('show');
+      setToken(data.token);
+    } catch (err) {
+      showFeedback('reg-feedback', err.message, 'error');
+    }
+  }
+
+  async function loginBusiness() {
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    if (!email || !password) return showFeedback('login-feedback','Email and password required','error');
+
+    try {
+      const res = await fetch(`${API}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+
+      showFeedback('login-feedback', `✓ Welcome back, ${data.business.name}!`, 'success');
+      setToken(data.token);
+    } catch (err) {
+      showFeedback('login-feedback', err.message, 'error');
+    }
+  }
+
+  // ── SOCKET ──
+  function connectSocket() {
+    const token = document.getElementById('jwt-input').value.trim();
+    if (!token) return showFeedback('connect-feedback', 'Paste a JWT token first', 'error');
+
+    if (socket) socket.disconnect();
+    clearMessages();
+
+    socket = io({ auth: { token } });
+
+    socket.on('connect', () => {
+      console.log('[Socket] Connected:', socket.id);
+    });
+
+    socket.on('connect_error', (err) => {
+      showFeedback('connect-feedback', `Connection failed: ${err.message}`, 'error');
+      setDisconnected();
+    });
+
+    // Get business name from token payload
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      // Fetch business name via API
+      fetch(`${API}/api/auth/me`, { headers: { 'Authorization': `Bearer ${token}` } })
+        .then(r => r.json())
+        .then(d => {
+          if (d.name) setConnected(d.name);
+        });
+    } catch(e) {
+      setConnected('Business');
+    }
+
+    socket.on('history', (messages) => {
+      clearMessages();
+      if (messages.length > 0) {
+        appendSysMsg(`${messages.length} previous messages`);
+        messages.forEach(m => appendMessage(m, true));
+        document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
+      }
+    });
+
+    socket.on('message', (data) => {
+      appendMessage(data, false);
+    });
+
+    socket.on('user_joined', (data) => {
+      appendSysMsg(`${data.businessName} user connected`);
+    });
+
+    socket.on('user_left', (data) => {
+      appendSysMsg(`${data.businessName} user disconnected`);
+    });
+
+    socket.on('error', (data) => {
+      showFeedback('connect-feedback', data.message, 'error');
+    });
+
+    socket.on('disconnect', (reason) => {
+      console.log('[Socket] Disconnected:', reason);
+      if (reason !== 'io client disconnect') {
+        setDisconnected();
+        showFeedback('connect-feedback', 'Disconnected from server', 'error');
+      }
+    });
+  }
+
+  function disconnectSocket() {
+    if (socket) {
+      socket.disconnect();
+      socket = null;
+    }
+    setDisconnected();
+    clearMessages();
+  }
+
+  // ── SEND MESSAGE ──
+  function sendMessage() {
+    const sender = document.getElementById('sender-name').value.trim();
+    const text = document.getElementById('message-input').value.trim();
+
+    if (!socket || !socket.connected) return showFeedback('connect-feedback', 'Not connected', 'error');
+    if (!sender) {
+      document.getElementById('sender-name').focus();
+      return;
+    }
+    if (!text) return;
+
+    socket.emit('message', { sender, text });
+    document.getElementById('message-input').value = '';
+    document.getElementById('message-input').focus();
+  }
+
+  // ── KEYBOARD ──
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const active = document.activeElement;
+      if (active && active.id === 'message-input') sendMessage();
+      else if (active && active.id === 'reg-password') register();
+      else if (active && active.id === 'login-password') loginBusiness();
+    }
+  });
+</script>
+</body>
+</html>
